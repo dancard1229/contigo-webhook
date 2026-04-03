@@ -18,9 +18,9 @@ module.exports = async (req, res) => {
     const orgUri = userData.resource && userData.resource.current_organization;
     const userUri = userData.resource && userData.resource.uri;
 
-    // Get all events for this user
+    // Try with organization scope
     const eventsRes = await fetch(
-      "https://api.calendly.com/scheduled_events?user=" + encodeURIComponent(userUri) + "&status=active&count=100",
+      "https://api.calendly.com/scheduled_events?organization=" + encodeURIComponent(orgUri) + "&status=active&count=100",
       { headers: { Authorization: "Bearer " + CALENDLY_TOKEN } }
     );
     const eventsData = await eventsRes.json();
@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ 
       appointments: matchingApts,
-      debug: { totalEvents: allEvents.length, orgUri, userUri }
+      debug: { totalEvents: allEvents.length, orgUri, userUri, eventsError: eventsData.message }
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
