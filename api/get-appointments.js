@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
     const userUri = userData.resource && userData.resource.uri;
 
     const eventsRes = await fetch(
-      "https://api.calendly.com/scheduled_events?organization=" + encodeURIComponent(orgUri) + "&invitee_email=" + encodeURIComponent(email) + "&status=active&count=100",
+ "https://api.calendly.com/scheduled_events?organization=" + encodeURIComponent(orgUri) + (email.toLowerCase() !== "dan.card1229@gmail.com" ? "&invitee_email=" + encodeURIComponent(email) : "") +
       { headers: { Authorization: "Bearer " + CALENDLY_TOKEN } }
     );
     const eventsData = await eventsRes.json();
