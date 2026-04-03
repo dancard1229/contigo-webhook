@@ -4,7 +4,6 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: "Email requerido" });
@@ -15,44 +14,38 @@ module.exports = async (req, res) => {
       headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
     });
     const userData = await userRes.json();
+    
+    // Show full user data for debugging
+    if (email === "debug") {
+      return res.status(200).json({ userData });
+    }
+
     const orgUri = userData.resource && userData.resource.current_organization;
     const userUri = userData.resource && userData.resource.uri;
 
-    // Try with organization scope
+    // Try invitee_email filter directly
     const eventsRes = await fetch(
-      "https://api.calendly.com/scheduled_events?organization=" + encodeURIComponent(orgUri) + "&status=active&count=100",
+      "https://api.calendly.com/scheduled_events?organization=" + encodeURIComponent(orgUri) + "&invitee_email=" + encodeURIComponent(email) + "&status=active&count=100",
       { headers: { Authorization: "Bearer " + CALENDLY_TOKEN } }
     );
     const eventsData = await eventsRes.json();
     const allEvents = eventsData.collection || [];
 
-    // For each event check invitees
-    const matchingApts = [];
-    for (const event of allEvents) {
-      const invRes = await fetch(event.uri + "/invitees", {
-        headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
-      });
-      const invData = await invRes.json();
-      const invitees = invData.collection || [];
-      const match = invitees.find(function(inv) {
-        return inv.email && inv.email.toLowerCase() === email.toLowerCase();
-      });
-      if (match) {
-        matchingApts.push({
-          id: event.uri,
-          date: event.start_time,
-          endTime: event.end_time,
-          status: "confirmed",
-          name: event.name || "Consulta psicológica",
-          doctor: "Dr. Daniel Cardona",
-          duration: Math.round((new Date(event.end_time) - new Date(event.start_time)) / 60000)
-        });
-      }
-    }
+    const appointments = allEvents.map(function(event) {
+      return {
+        id: event.uri,
+        date: event.start_time,
+        endTime: event.end_time,
+        status: "confirmed",
+        name: event.name || "Consulta psicológica",
+        doctor: "Dr. Daniel Cardona",
+        duration: Math.round((new Date(event.end_time) - new Date(event.start_time)) / 60000)
+      };
+    });
 
     return res.status(200).json({ 
-      appointments: matchingApts,
-      debug: { totalEvents: allEvents.length, orgUri, userUri, eventsError: eventsData.message }
+      appointments,
+      debug: { totalEvents: allEvents.length, orgUri, userUri, error: eventsData.message }
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
