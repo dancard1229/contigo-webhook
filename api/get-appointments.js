@@ -30,23 +30,25 @@ module.exports = async (req, res) => {
     const eventsData = await eventsRes.json();
     const allEvents = eventsData.collection || [];
 
-    // For psychologist, fetch invitee names
     const appointments = [];
     for (const event of allEvents) {
       let patientName = "Paciente";
       let patientEmail = "";
-      if (isDoctor) {
-        try {
-          const invRes = await fetch(event.uri + "/invitees", {
-            headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
-          });
-          const invData = await invRes.json();
-          if (invData.collection && invData.collection.length > 0) {
-            patientName = invData.collection[0].name || "Paciente";
-            patientEmail = invData.collection[0].email || "";
-          }
-        } catch(e) {}
-      }
+      let cancelUrl = null;
+
+      try {
+        const invRes = await fetch(event.uri + "/invitees", {
+          headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
+        });
+        const invData = await invRes.json();
+        if (invData.collection && invData.collection.length > 0) {
+          const inv = invData.collection[0];
+          patientName = inv.name || "Paciente";
+          patientEmail = inv.email || "";
+          cancelUrl = inv.cancel_url || null;
+        }
+      } catch(e) {}
+
       appointments.push({
         id: event.uri,
         date: event.start_time,
@@ -55,6 +57,7 @@ module.exports = async (req, res) => {
         name: isDoctor ? patientName : (event.name || "Consulta psicologica"),
         patientName: patientName,
         patientEmail: patientEmail,
+        cancelUrl: cancelUrl,
         doctor: "Dr. Daniel Cardona",
         duration: Math.round((new Date(event.end_time) - new Date(event.start_time)) / 60000)
       });
