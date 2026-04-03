@@ -10,48 +10,57 @@ module.exports = async (req, res) => {
   if (!email) return res.status(400).json({ error: "Email requerido" });
 
   try {
-    // Get user info to obtain orgUri
     const userRes = await fetch("https://api.calendly.com/users/me", {
       headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
     });
     const userData = await userRes.json();
     const orgUri = userData.resource && userData.resource.current_organization;
-    const userUri = userData.resource && userData.resource.uri;
 
     if (email === "debug") {
-      return res.status(200).json({ orgUri, userUri });
+      return res.status(200).json({ orgUri });
     }
 
     const isDoctor = email.toLowerCase() === DOCTOR_EMAIL.toLowerCase();
-    
     let url = "https://api.calendly.com/scheduled_events?organization=" + encodeURIComponent(orgUri) + "&status=active&count=100";
     if (!isDoctor) {
       url += "&invitee_email=" + encodeURIComponent(email);
     }
 
-    const eventsRes = await fetch(url, {
-      headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
-    });
+    const eventsRes = await fetch(url, { headers: { Authorization: "Bearer " + CALENDLY_TOKEN } });
     const eventsData = await eventsRes.json();
     const allEvents = eventsData.collection || [];
 
-    const appointments = allEvents.map(function(event) {
-      return {
+    // For psychologist, fetch invitee names
+    const appointments = [];
+    for (const event of allEvents) {
+      let patientName = "Paciente";
+      let patientEmail = "";
+      if (isDoctor) {
+        try {
+          const invRes = await fetch(event.uri + "/invitees", {
+            headers: { Authorization: "Bearer " + CALENDLY_TOKEN }
+          });
+          const invData = await invRes.json();
+          if (invData.collection && invData.collection.length > 0) {
+            patientName = invData.collection[0].name || "Paciente";
+            patientEmail = invData.collection[0].email || "";
+          }
+        } catch(e) {}
+      }
+      appointments.push({
         id: event.uri,
         date: event.start_time,
         endTime: event.end_time,
         status: "confirmed",
-        name: event.name || "Consulta psicologica",
+        name: isDoctor ? patientName : (event.name || "Consulta psicologica"),
+        patientName: patientName,
+        patientEmail: patientEmail,
         doctor: "Dr. Daniel Cardona",
         duration: Math.round((new Date(event.end_time) - new Date(event.start_time)) / 60000)
-      };
-    });
+      });
+    }
 
-    return res.status(200).json({ 
-      appointments: appointments,
-      debug: { total: allEvents.length, isDoctor: isDoctor, error: eventsData.message }
-    });
-
+    return res.status(200).json({ appointments: appointments });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
