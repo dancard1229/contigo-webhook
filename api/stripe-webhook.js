@@ -18,56 +18,58 @@ module.exports = async (req, res) => {
 
   try {
     const event = req.body;
-    console.log("Event type:", event.type);
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const customerEmail = session.customer_details && session.customer_details.email;
-      const priceId = session.metadata && session.metadata.priceId;
       
-      console.log("Customer email:", customerEmail);
-      console.log("Price ID:", priceId);
+      // Log everything to debug
+      console.log("Email:", customerEmail);
+      console.log("Metadata:", JSON.stringify(session.metadata));
+      console.log("Amount:", session.amount_total);
       
-      const plan = getPlanInfo(priceId);
-      console.log("Plan:", plan);
+      // Detect plan by amount instead of priceId
+      let plan = null;
+      const amount = session.amount_total; // in cents
+      if (amount === 100)  plan = { sessions: 1, days: 30, name: "Prueba $1" };
+      else if (amount === 4500) plan = { sessions: 1, days: 30, name: "Sesión individual" };
+      else if (amount === 7600) plan = { sessions: 2, days: 60, name: "Paquete 2 sesiones" };
+      else if (amount === 9900) plan = { sessions: 3, days: 90, name: "Paquete 3 sesiones" };
+
+      console.log("Plan by amount:", plan);
 
       if (!customerEmail || !plan) {
-        console.log("Missing email or plan - returning");
-        return res.status(200).json({ received: true, note: "missing email or plan" });
+        console.log("Missing email or plan - amount:", amount);
+        return res.status(200).json({ received: true, note: "missing" });
       }
 
       const apiKey = process.env.FIREBASE_API_KEY;
       const projectId = FIREBASE_PROJECT;
-      
-      console.log("API Key exists:", !!apiKey);
 
       const queryUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery?key=${apiKey}`;
       
-      const queryBody = {
-        structuredQuery: {
-          from: [{ collectionId: "users" }],
-          where: {
-            fieldFilter: {
-              field: { fieldPath: "email" },
-              op: "EQUAL",
-              value: { stringValue: customerEmail }
-            }
-          },
-          limit: 1
-        }
-      };
-
       const queryRes = await fetch(queryUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(queryBody)
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [{ collectionId: "users" }],
+            where: {
+              fieldFilter: {
+                field: { fieldPath: "email" },
+                op: "EQUAL",
+                value: { stringValue: customerEmail }
+              }
+            },
+            limit: 1
+          }
+        })
       });
 
       const queryData = await queryRes.json();
-      console.log("Query result:", JSON.stringify(queryData[0] ? "found" : "not found"));
       
       if (!queryData || !queryData[0] || !queryData[0].document) {
-        console.log("User not found for email:", customerEmail);
+        console.log("User not found:", customerEmail);
         return res.status(200).json({ received: true, note: "user not found" });
       }
 
@@ -76,7 +78,7 @@ module.exports = async (req, res) => {
       const currentSessions = userDoc.fields && userDoc.fields.sesionesDisponibles ? 
         parseInt(userDoc.fields.sesionesDisponibles.integerValue || 0) : 0;
 
-      console.log("User ID:", userId, "Current sessions:", currentSessions);
+      console.log("Found user:", userId, "sessions:", currentSessions);
 
       const now = new Date();
       const expiry = new Date(now.getTime() + plan.days * 24 * 60 * 60 * 1000);
@@ -96,12 +98,7 @@ module.exports = async (req, res) => {
         })
       });
 
-      const updateData = await updateRes.json();
       console.log("Update status:", updateRes.status);
-
-      if (updateRes.status !== 200) {
-        console.log("Update error:", JSON.stringify(updateData));
-      }
     }
 
     return res.status(200).json({ received: true });
