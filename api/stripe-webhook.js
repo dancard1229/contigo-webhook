@@ -1,20 +1,8 @@
 const PRICE_INDIVIDUAL = "price_1TJnG6DPHdGGTGJ9ZIY5BQEU";
 const PRICE_2SESSIONS  = "price_1TJnJkDPHdGGTGJ992cblRsh";
 const PRICE_3SESSIONS  = "price_1TJnKVDPHdGGTGJ9JSlDUISY";
-
-const admin = require("firebase-admin");
-
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
-    }),
-  });
-}
-
-const db = admin.firestore();
+const FIREBASE_PROJECT = "contigo-de-la-mano-dd63f";
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 
 function getPlanInfo(priceId) {
   if (priceId === PRICE_INDIVIDUAL) return { sessions: 1, days: 30, name: "Sesión individual" };
@@ -40,31 +28,79 @@ module.exports = async (req, res) => {
 
       if (!customerEmail || !plan) return res.status(200).json({ received: true });
 
-      const usersSnap = await db.collection("users").where("email", "==", customerEmail).get();
-      if (usersSnap.empty) return res.status(200).json({ received: true });
-
-      const userDoc = usersSnap.docs[0];
-      const currentData = userDoc.data();
       const now = new Date();
       const expiry = new Date(now.getTime() + plan.days * 24 * 60 * 60 * 1000);
-      const currentSessions = currentData.sesionesDisponibles || 0;
 
-      await userDoc.ref.update({
-        sesionesDisponibles: currentSessions + plan.sessions,
-        sesionesVencimiento: expiry.toISOString(),
-        ultimoPlan: plan.name,
-        ultimaCompra: now.toISOString(),
+      // Use Firestore REST API to find user by email and update
+      const apiKey = process.env.FIREBASE_API_KEY;
+      const projectId = FIREBASE_PROJECT;
+
+      // Query for user with this email
+      const queryUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery?key=${apiKey}`;
+      
+      const queryBody = {
+        structuredQuery: {
+          from: [{ collectionId: "users" }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: "email" },
+              op: "EQUAL",
+              value: { stringValue: customerEmail }
+            }
+          },
+          limit: 1
+        }
+      };
+
+      const queryRes = await fetch(queryUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(queryBody)
       });
 
-      await db.collection("payments").add({
-        patientEmail: customerEmail,
-        patientId: userDoc.id,
-        plan: plan.name,
-        sessions: plan.sessions,
-        amount: session.amount_total / 100,
-        currency: session.currency,
-        stripeSessionId: session.id,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      const queryData = await queryRes.json();
+      
+      if (!queryData || !queryData[0] || !queryData[0].document) {
+        return res.status(200).json({ received: true, note: "User not found" });
+      }
+
+      const userDoc = queryData[0].document;
+      const userId = userDoc.name.split("/").pop();
+      const currentSessions = userDoc.fields && userDoc.fields.sesionesDisponibles ? 
+        parseInt(userDoc.fields.sesionesDisponibles.integerValue || 0) : 0;
+
+      // Update user document
+      const updateUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${userId}?key=${apiKey}&updateMask.fieldPaths=sesionesDisponibles&updateMask.fieldPaths=sesionesVencimiento&updateMask.fieldPaths=ultimoPlan&updateMask.fieldPaths=ultimaCompra`;
+
+      await fetch(updateUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: {
+            sesionesDisponibles: { integerValue: currentSessions + plan.sessions },
+            sesionesVencimiento: { stringValue: expiry.toISOString() },
+            ultimoPlan: { stringValue: plan.name },
+            ultimaCompra: { stringValue: now.toISOString() }
+          }
+        })
+      });
+
+      // Save payment record
+      const paymentUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/payments?key=${apiKey}`;
+      await fetch(paymentUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: {
+            patientEmail: { stringValue: customerEmail },
+            patientId: { stringValue: userId },
+            plan: { stringValue: plan.name },
+            sessions: { integerValue: plan.sessions },
+            amount: { doubleValue: session.amount_total / 100 },
+            stripeSessionId: { stringValue: session.id },
+            createdAt: { stringValue: now.toISOString() }
+          }
+        })
       });
     }
 
