@@ -2,7 +2,10 @@ const CALENDLY_TOKEN = "eyJraWQiOiIxY2UxZTEzNjE3ZGNmNzY2YjNjZWJjY2Y4ZGM1YmFmYThh
 const DOCTOR_EMAIL = "danielcardona@contigodelamano.com";
 
 module.exports = async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  if (["https://contigodelamano.com","https://www.contigodelamano.com"].includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -68,4 +71,3 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 };
-

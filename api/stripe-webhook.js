@@ -1,4 +1,19 @@
-onst FIREBASE_PROJECT = "contigo-de-la-mano-dd63f";
+
+const ALLOWED_ORIGINS = [
+  "https://contigodelamano.com",
+  "https://www.contigodelamano.com"
+];
+
+function setCORS(req, res) {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
+const FIREBASE_PROJECT = "contigo-de-la-mano-dd63f";
 
 async function findAndUpdateUser(email, sessionsDelta, apiKey) {
   const projectId = FIREBASE_PROJECT;
@@ -59,8 +74,7 @@ function getSessionsByAmount(amount) {
 }
 
 module.exports = async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  setCORS(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
